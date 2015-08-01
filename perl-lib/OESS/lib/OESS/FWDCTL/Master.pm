@@ -38,6 +38,7 @@ use Log::Log4perl;
 use Switch;
 use OESS::FlowRule;
 use OESS::FWDCTL::Switch;
+use OESS::FWDCTL::PortGroup;
 use OESS::Database;
 use OESS::Topology;
 use OESS::Circuit;
@@ -843,6 +844,18 @@ sub port_status{
 
     if (! defined $link_info || @$link_info < 1) {
         #--- no link means edge port
+        #--- check if is part of a PortGroup
+	my $flapping_interface = OESS::FWDCTL::PortGroup::portgroup_check_if_interface_belongs($port_name, $node_details->{'name'});
+        if ($flapping_interface == 0){
+            $self->{'logger'}->info("Port $port_name doesn't belong to any PortGroup");
+        }elsif($flapping_interface->{'interface_id'} > 0){
+            my $status = OESS::FWDCTL::PortGroup::portgroup_run($flapping_interface,$link_status);
+            if ($status == 1){
+                $self->{'logger'}->info("PortGroup: success");
+            }else{
+                $self->{'logger'}->info("PortGroup: error");
+            }
+        } # If it is < 0, it means a database connection error error
         return;
     }
 

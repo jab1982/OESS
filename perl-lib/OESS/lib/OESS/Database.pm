@@ -8645,6 +8645,167 @@ sub is_within_mac_limit {
     return $result;
 }
 
+#############################
+# Port Group functions
+############################# 
+
+=head2 query_pgroup
+
+=cut
+
+sub query_pgroup {
+    my $self = shift;
+    my %args = @_;
+    my $port_name = $args{'port_name'};
+    my $node_name = $args{'node_name'}; 
+
+    my $query = "select interface.interface_id, pgroup.priority, interface.name, pgroup.pgroup_id ".
+                "from interface, node, pgroup where ". 
+                "interface.name = ? and ". 
+                "node.name = ? and ".
+                "interface.node_id = node.node_id and ".
+		"interface.interface_id = pgroup.interface_id";
+
+    my $flapping_interface = $self->_execute_query($query,[ $port_name, $node_name ] ) || return;                                                             
+    if(! defined $flapping_interface){ return 0; }
+
+    return @$flapping_interface[0];
+}
+
+
+=head2 get_current_active
+
+=cut
+
+sub get_current_active{
+    my $self = shift;
+    my %args = @_;
+    my $pgroup_id = $args{'pgroup_id'};
+
+    my $query = "select pgroup.interface_id, pgroup.priority, interface.name ".
+		"from pgroup, interface where ".
+		"pgroup_id = ? and ".
+		"pgroup.active = 'up' and ".
+		"pgroup.interface_id = interface.interface_id";
+
+    my $current_active = $self->_execute_query($query,[ $pgroup_id ] ) || return ;
+
+    if(! defined $current_active ){ return 0; }
+
+    return @$current_active[0];
+}
+
+=head2 get_last_active
+
+=cut
+
+sub get_last_active{ 
+    my $self = shift;
+    my %args = @_;
+    my $pgroup_id = $args{'pgroup_id'};
+
+    my $query = "select pgroup.interface_id, pgroup.priority, interface.name ".
+                "from pgroup, interface where ".
+                "pgroup.pgroup_id = ? and ".
+		"pgroup.last_active = 1 and ".
+                "pgroup.interface_id = interface.interface_id";
+	
+    my $last_active = $self->_execute_query($query,[ $pgroup_id ] ) || return ;
+
+    if(! defined $last_active ){ 
+
+	# No one has ever been active. Assume the best priority is the default choice 
+	# of users (100G then 10G)
+	my $query = "select pgroup.interface_id, pgroup.priority, interface.name ".
+		    "from pgroup, interface where ".
+		    "pgroup.pgroup_id = ? and ".
+                    "pgroup.interface_id = interface.interface_id ".
+		    "ORDER BY priority ASC LIMIT 1";
+                     	
+	$last_active = $self->_execute_query($query,[ $pgroup_id ] ) || return ;
+    }
+
+    return @$last_active[0];
+}
+
+=head2 get_candidate_interface
+
+=cut 
+
+sub get_candidate_interface{
+    my $self = shift;
+    my %args = @_;
+    my $pgroup_id = $args{'pgroup_id'};
+
+    my $query = "select  pgroup.pgroup_id, pgroup.interface_id, pgroup.priority, interface.name ".
+		"from pgroup, interface where ".
+		"pgroup.pgroup_id = ? and ".
+		"pgroup.active = 'down' and ".
+		"pgroup.interface_id = interface.interface_id and ".
+		"interface.operational_state = 'up' ".
+		"order by pgroup.priority asc limit 1";
+
+    my $candidate = $self->_execute_query($query,[ $pgroup_id ] ) || return ;
+
+    return @$candidate[0];
+
+}
+
+=head2 disable_current_active
+
+=cut
+
+sub disable_current_active{
+    my $self = shift;
+    my %args = @_;
+    my $pgroup_id = $args{'pgroup_id'};
+
+    my $query = "UPDATE pgroup ".
+                "set active = 'down' where pgroup_id = ?";
+
+    my $result = $self->_execute_query($query,[ $pgroup_id ] ) || return 0;
+
+    return 1;
+}
+
+
+=head2 set_active
+
+=cut 
+
+sub set_new_active{
+    my $self = shift;
+    my %args = @_;
+    my $pgroup_id = $args{'pgroup_id'};
+    my $interface_id = $args{'interface_id'};
+
+    my $query = "UPDATE pgroup ".
+                "set active = 'down' where pgroup_id = ?";
+
+    my $result = $self->_execute_query($query,[ $pgroup_id ] );
+
+    $query = "UPDATE pgroup ".
+                "set active = 'up' where pgroup_id = ? and interface_id = ?";
+
+    $result = $self->_execute_query($query,[ $pgroup_id, $interface_id ] ) || return 0;
+
+    $query = "UPDATE pgroup ".
+                "set last_active = '1' where pgroup_id = ? and interface_id = ?";
+
+    $result = $self->_execute_query($query,[ $pgroup_id, $interface_id ] ) || return 0;
+
+
+    $query = "UPDATE pgroup ".
+                "set last_active = '0' where pgroup_id = ? and active <> 'up'";
+
+    $result = $self->_execute_query($query,[ $pgroup_id ] ) || return 0;
+
+    return 1;
+}
+
+
+#############################
+
 =head2 mac_hex2num
 
 =cut
